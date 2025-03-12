@@ -25,8 +25,8 @@
                                 <span class="input-group-text">市场</span>
                                 <select class="form-select" id="market-type">
                                     <option value="A" selected>A股</option>
-                                    <option value="HK">港股</option>
-                                    <option value="US">美股</option>
+<!--                                    <option value="HK">港股</option>-->
+<!--                                    <option value="US">美股</option>-->
                                 </select>
                             </div>
                         </div>
@@ -183,9 +183,42 @@
         });
     });
 
+    // 显示错误信息
+    function showError(message) {
+        // 创建或获取alerts容器
+        const alertsContainer = $('#alerts-container');
+        
+        // 创建警告框
+        const alertHtml = `
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>${message}</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        `;
+        
+        // 添加到容器
+        alertsContainer.html(alertHtml);
+        
+        // 隐藏加载面板和结果
+        $('#loading-panel').hide();
+        $('#scenario-result').hide();
+        
+        // 滚动到顶部
+        window.scrollTo(0, 0);
+        
+        // 5秒后自动关闭
+        setTimeout(() => {
+            $('.alert').alert('close');
+        }, 5000);
+    }
+
     function fetchScenarioPrediction(stockCode, marketType, days) {
         $('#loading-panel').show();
         $('#scenario-result').hide();
+        
+        // 清除之前的错误信息
+        $('#alerts-container').empty();
 
         $.ajax({
             url: '/api/scenario_predict',
@@ -198,18 +231,32 @@
             }),
             success: function(response) {
                 $('#loading-panel').hide();
+                
+                // 检查响应是否包含错误信息
+                if (response.error || response.status === "error") {
+                    showError(response.error || '暂时不支持该股票代码分析');
+                    return;
+                }
+                
                 renderScenarioPrediction(response, stockCode);
                 $('#scenario-result').show();
             },
             error: function(xhr, status, error) {
                 $('#loading-panel').hide();
                 let errorMsg = '获取情景预测失败';
-                if (xhr.responseJSON && xhr.responseJSON.error) {
-                    errorMsg += ': ' + xhr.responseJSON.error;
+                
+                if (xhr.responseJSON) {
+                    if (xhr.responseJSON.error) {
+                        errorMsg = xhr.responseJSON.error;
+                    } else if (xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    }
                 } else if (error) {
                     errorMsg += ': ' + error;
                 }
+                
                 showError(errorMsg);
+                console.error("情景预测API错误:", error, xhr.responseJSON);
             }
         });
     }

@@ -18,8 +18,14 @@ class RiskMonitor:
         """分析单只股票的风险"""
         try:
             # 获取股票数据和技术指标
-            df = self.analyzer.get_stock_data(stock_code, market_type)
-            df = self.analyzer.calculate_indicators(df)
+            try:
+                df = self.analyzer.get_stock_data(stock_code, market_type)
+                if df is None or df.empty or 'date' not in df.columns:
+                    return {"error": "暂时不支持该股票代码分析"}
+                df = self.analyzer.calculate_indicators(df)
+            except Exception as e:
+                print(f"获取股票数据失败: {str(e)}")
+                return {"error": "暂时不支持该股票代码分析"}
 
             # 计算各类风险指标
             volatility_risk = self._analyze_volatility_risk(df)

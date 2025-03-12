@@ -25,14 +25,14 @@
                                 <span class="input-group-text">市场</span>
                                 <select class="form-select" id="market-type">
                                     <option value="A" selected>A股</option>
-                                    <option value="HK">港股</option>
-                                    <option value="US">美股</option>
+<!--                                    <option value="HK">港股</option>-->
+<!--                                    <option value="US">美股</option>-->
                                 </select>
                             </div>
                         </div>
                         <div class="col-md-3">
                             <button type="submit" class="btn btn-primary btn-sm w-100">
-                                <i class="fas fa-info-circle"></i> 选择股票
+                                <i class="fas fa-search"></i> 开始问答
                             </button>
                         </div>
                     </form>
@@ -267,6 +267,12 @@
 
                 if (response.results && response.results.length > 0) {
                     const stockInfo = response.results[0];
+                    
+                    // 检查是否有错误信息
+                    if (stockInfo.error) {
+                        showError(stockInfo.error || '暂时不支持该股票代码分析');
+                        return;
+                    }
 
                     // 保存选中的股票信息
                     selectedStock = {
@@ -293,11 +299,24 @@
             error: function(xhr, status, error) {
                 $('#loading-panel').hide();
                 let errorMsg = '获取股票信息失败';
-                if (xhr.responseJSON && xhr.responseJSON.error) {
-                    errorMsg += ': ' + xhr.responseJSON.error;
+                
+                if (xhr.responseJSON) {
+                    if (xhr.responseJSON.error) {
+                        errorMsg = xhr.responseJSON.error;
+                    } else if (xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    }
                 } else if (error) {
                     errorMsg += ': ' + error;
                 }
+                
+                // 检查是否是"暂时不支持该股票代码分析"的错误
+                if (errorMsg.includes('暂时不支持该股票代码分析') || 
+                    errorMsg.includes('获取股票数据失败') || 
+                    errorMsg.includes('date')) {
+                    errorMsg = '暂时不支持该股票代码分析';
+                }
+                
                 showError(errorMsg);
             }
         });
@@ -334,6 +353,15 @@
             success: function(response) {
                 // 移除思考中消息
                 $(`#${thinkingMessageId}`).remove();
+                
+                // 检查响应中是否包含"暂时不支持该股票代码分析"
+                if (response.answer && response.answer.includes('暂时不支持该股票代码分析')) {
+                    // 显示错误并重置选择的股票
+                    showError('暂时不支持该股票代码分析');
+                    selectedStock = { code: '', name: '', market_type: 'A' };
+                    $('#chat-container').hide();
+                    return;
+                }
 
                 // 添加回答
                 addSystemMessage(formatAnswer(response.answer));
@@ -347,10 +375,24 @@
 
                 // 添加错误消息
                 let errorMsg = '无法回答您的问题';
-                if (xhr.responseJSON && xhr.responseJSON.error) {
-                    errorMsg += ': ' + xhr.responseJSON.error;
+                
+                if (xhr.responseJSON) {
+                    if (xhr.responseJSON.error) {
+                        errorMsg = xhr.responseJSON.error;
+                    } else if (xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    }
                 } else if (error) {
                     errorMsg += ': ' + error;
+                }
+                
+                // 检查是否是"暂时不支持该股票代码分析"的错误
+                if (errorMsg.includes('暂时不支持该股票代码分析')) {
+                    // 显示错误并重置选择的股票
+                    showError('暂时不支持该股票代码分析');
+                    selectedStock = { code: '', name: '', market_type: 'A' };
+                    $('#chat-container').hide();
+                    return;
                 }
 
                 addSystemMessage(`<span class="text-danger">${errorMsg}</span>`);
@@ -448,6 +490,36 @@
 
         // Wrap in paragraph tags for consistent styling
         return '<p class="mb-2">' + formatted + '</p>';
+    }
+
+    // 显示错误信息
+    function showError(message) {
+        // 创建或获取alerts容器
+        const alertsContainer = $('#alerts-container');
+        
+        // 创建警告框
+        const alertHtml = `
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>${message}</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        `;
+        
+        // 添加到容器
+        alertsContainer.html(alertHtml);
+        
+        // 隐藏加载面板和结果
+        $('#loading-panel').hide();
+        $('#qa-result').hide();
+        
+        // 滚动到顶部
+        window.scrollTo(0, 0);
+        
+        // 5秒后自动关闭
+        setTimeout(() => {
+            $('.alert').alert('close');
+        }, 5000);
     }
 </script>
 {% endblock %}

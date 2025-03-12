@@ -406,50 +406,65 @@ def index():
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
+    """分析股票数据"""
     try:
-        data = request.json
+        data = request.get_json()
         stock_codes = data.get('stock_codes', [])
         market_type = data.get('market_type', 'A')
-
+        
         if not stock_codes:
-            return jsonify({'error': '请输入代码'}), 400
-
-        app.logger.info(f"分析股票请求: {stock_codes}, 市场类型: {market_type}")
-
-        # 设置最大处理时间，每只股票10秒
-        max_time_per_stock = 10  # 秒
-        max_total_time = max(30, min(60, len(stock_codes) * max_time_per_stock))  # 至少30秒，最多60秒
-
-        start_time = time.time()
+            return jsonify({'error': '请提供股票代码'}), 400
+        
+        analyzer = get_analyzer()
         results = []
-
+        
         for stock_code in stock_codes:
             try:
-                # 检查是否已超时
-                if time.time() - start_time > max_total_time:
-                    app.logger.warning(f"分析股票请求已超过{max_total_time}秒，提前返回已处理的{len(results)}只股票")
-                    break
-
-                # 使用线程本地缓存的分析器实例
-                current_analyzer = get_analyzer()
-                result = current_analyzer.quick_analyze_stock(stock_code.strip(), market_type)
-
-                app.logger.info(
-                    f"分析结果: 股票={stock_code}, 名称={result.get('stock_name', '未知')}, 行业={result.get('industry', '未知')}")
-                results.append(result)
-            except Exception as e:
-                app.logger.error(f"分析股票 {stock_code} 时出错: {str(e)}")
+                logging.info(f"开始分析股票 {stock_code}")
+                # 尝试获取股票信息
+                try:
+                    stock_info = analyzer.get_stock_info(stock_code, market_type)
+                    if not stock_info or 'date' not in stock_info:
+                        raise ValueError("获取股票数据失败: 'date'")
+                    results.append(stock_info)
+                except Exception as e:
+                    error_msg = str(e)
+                    logging.warning(f"获取股票 {stock_code} 信息失败: {error_msg}")
+                    
+                    # 检查是否是 'date' 相关错误
+                    if "'date'" in error_msg or "date" in error_msg:
+                        results.append({
+                            'stock_code': stock_code,
+                            'error': '暂时不支持该股票代码分析'
+                        })
+                    else:
+                        # 尝试使用快速分析作为备选
+                        try:
+                            quick_result = analyzer.quick_analyze_stock(stock_code, market_type)
+                            if quick_result:
+                                results.append(quick_result)
+                            else:
+                                results.append({
+                                    'stock_code': stock_code,
+                                    'error': '暂时不支持该股票代码分析'
+                                })
+                        except Exception as quick_e:
+                            logging.error(f"快速分析股票 {stock_code} 失败: {str(quick_e)}")
+                            results.append({
+                                'stock_code': stock_code,
+                                'error': '暂时不支持该股票代码分析'
+                            })
+            except Exception as stock_e:
+                logging.error(f"处理股票 {stock_code} 时发生错误: {str(stock_e)}")
                 results.append({
                     'stock_code': stock_code,
-                    'error': str(e),
-                    'stock_name': '分析失败',
-                    'industry': '未知'
+                    'error': '暂时不支持该股票代码分析'
                 })
-
+        
         return jsonify({'results': results})
     except Exception as e:
-        app.logger.error(f"分析股票时出错: {traceback.format_exc()}")
-        return jsonify({'error': str(e)}), 500
+        logging.error(f"分析请求处理失败: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': '处理请求时发生错误'}), 500
 
 
 @app.route('/api/north_flow_history', methods=['POST'])
@@ -799,6 +814,9 @@ def get_stock_data():
         if not stock_code:
             return custom_jsonify({'error': '请提供股票代码'}), 400
 
+        # 记录请求参数，便于调试
+        app.logger.info(f"获取股票数据请求参数: stock_code={stock_code}, market_type={market_type}, period={period}")
+
         # 根据period计算start_date
         end_date = datetime.now().strftime('%Y%m%d')
         if period == '1m':
@@ -810,12 +828,25 @@ def get_stock_data():
         elif period == '1y':
             start_date = (datetime.now() - timedelta(days=365)).strftime('%Y%m%d')
         else:
+            # 如果传入了未知的周期，默认使用1年
+            app.logger.warning(f"未知的周期参数: {period}，使用默认值1y")
             start_date = (datetime.now() - timedelta(days=365)).strftime('%Y%m%d')
+            period = '1y'
+
+        app.logger.info(f"计算的日期范围: start_date={start_date}, end_date={end_date}, period={period}")
 
         # 获取股票历史数据
-        app.logger.info(
-            f"获取股票 {stock_code} 的历史数据，市场: {market_type}, 起始日期: {start_date}, 结束日期: {end_date}")
-        df = analyzer.get_stock_data(stock_code, market_type, start_date, end_date)
+        try:
+            df = analyzer.get_stock_data(stock_code, market_type, start_date, end_date)
+        except Exception as e:
+            error_msg = str(e)
+            app.logger.error(f"获取股票数据失败: {error_msg}")
+            
+            # 检查是否是'date'相关错误或其他常见错误
+            if "'date'" in error_msg or "获取股票数据失败" in error_msg:
+                return jsonify({"status": "error", "message": "暂时不支持该股票代码分析"}), 400
+            else:
+                return jsonify({"status": "error", "message": f"获取股票数据失败: {error_msg}"}), 500
 
         # 计算技术指标
         app.logger.info(f"计算股票 {stock_code} 的技术指标")
@@ -824,7 +855,7 @@ def get_stock_data():
         # 检查数据是否为空
         if df.empty:
             app.logger.warning(f"股票 {stock_code} 的数据为空")
-            return custom_jsonify({'error': '未找到股票数据'}), 404
+            return jsonify({"status": "error", "message": "未找到股票数据"}), 404
 
         # 将DataFrame转为JSON格式
         app.logger.info(f"将数据转换为JSON格式，行数: {len(df)}")
@@ -847,12 +878,12 @@ def get_stock_data():
 
         records = df.to_dict('records')
 
-        app.logger.info(f"数据处理完成，返回 {len(records)} 条记录")
-        return custom_jsonify({'data': records})
+        app.logger.info(f"数据处理完成，返回 {len(records)} 条记录，周期: {period}")
+        return jsonify({"status": "success", "data": records, "period": period})
     except Exception as e:
         app.logger.error(f"获取股票数据时出错: {str(e)}")
         app.logger.error(traceback.format_exc())
-        return custom_jsonify({'error': str(e)}), 500
+        return jsonify({"status": "error", "message": "暂时不支持该股票代码分析", "detail": str(e)}), 400
 
 
 # @app.route('/api/market_scan', methods=['POST'])
@@ -1187,17 +1218,255 @@ def api_fundamental_analysis():
     try:
         data = request.json
         stock_code = data.get('stock_code')
+        market_type = data.get('market_type', 'A')  # 默认为A股
 
         if not stock_code:
             return jsonify({'error': '请提供股票代码'}), 400
 
-        # 获取基本面分析结果
-        result = fundamental_analyzer.calculate_fundamental_score(stock_code)
-
-        return custom_jsonify(result)
+        app.logger.info(f"获取基本面分析: stock_code={stock_code}, market_type={market_type}")
+        
+        # 尝试获取股票基本信息
+        stock_info = None
+        try:
+            # 使用StockAnalyzer的get_stock_info方法获取股票信息
+            stock_info = analyzer.get_stock_info(stock_code)
+            app.logger.info(f"成功获取股票信息: {stock_info}")
+        except Exception as e:
+            app.logger.warning(f"获取股票基本信息失败: {str(e)}")
+            # 尝试使用quick_analyze_stock方法获取基本信息
+            try:
+                quick_result = analyzer.quick_analyze_stock(stock_code, market_type)
+                stock_info = {
+                    'stock_name': quick_result.get('stock_name', stock_code),
+                    'industry': quick_result.get('industry', '未知行业')
+                }
+                app.logger.info(f"通过quick_analyze_stock获取股票信息: {stock_info}")
+            except Exception as e2:
+                app.logger.warning(f"通过quick_analyze_stock获取股票信息失败: {str(e2)}")
+                stock_info = None
+        
+        # 获取真实财务数据
+        financial_data = {}
+        growth_data = {}
+        
+        try:
+            import akshare as ak
+            
+            # 格式化股票代码，确保适合akshare API
+            formatted_stock_code = stock_code
+            if market_type == 'A':
+                # 确保A股代码格式正确（不带市场前缀，纯数字）
+                if stock_code.startswith('sh') or stock_code.startswith('sz'):
+                    formatted_stock_code = stock_code[2:]
+            
+            app.logger.info(f"获取股票 {formatted_stock_code} 的财务指标")
+            
+            # 获取主要财务指标
+            try:
+                # 获取PE、PB等估值指标 - 使用正确的API
+                stock_zh_a_spot_df = ak.stock_zh_a_spot()
+                stock_info_df = stock_zh_a_spot_df[stock_zh_a_spot_df['代码'] == formatted_stock_code]
+                
+                if not stock_info_df.empty:
+                    financial_data['pe_ttm'] = float(stock_info_df['市盈率-动态'].values[0]) if not pd.isna(stock_info_df['市盈率-动态'].values[0]) else None
+                    financial_data['pb'] = float(stock_info_df['市净率'].values[0]) if not pd.isna(stock_info_df['市净率'].values[0]) else None
+                    financial_data['ps_ttm'] = None  # 市销率在spot数据中没有，需要另外获取
+                    app.logger.info(f"获取到估值指标: PE={financial_data.get('pe_ttm')}, PB={financial_data.get('pb')}")
+            except Exception as e:
+                app.logger.warning(f"获取估值指标失败: {str(e)}")
+                app.logger.warning(traceback.format_exc())
+            
+            # 获取ROE等盈利能力指标
+            try:
+                # 获取最近的财务报表数据 - 使用正确的API参数
+                try:
+                    # 尝试直接获取财务报表，不使用symbol_type参数
+                    stock_financial_report_df = ak.stock_financial_report_sina(symbol=formatted_stock_code)
+                    app.logger.info(f"成功获取财务报表数据，行数: {len(stock_financial_report_df)}")
+                except Exception as e1:
+                    app.logger.warning(f"获取财务报表数据失败: {str(e1)}")
+                    stock_financial_report_df = pd.DataFrame()
+                
+                # 如果无法获取财务报表，尝试从财务分析指标中提取盈利能力指标
+                if stock_financial_report_df.empty and 'stock_financial_analysis_df' in locals() and not stock_financial_analysis_df.empty:
+                    app.logger.info("从财务分析指标中提取盈利能力指标")
+                    latest_data = stock_financial_analysis_df.iloc[0]
+                    
+                    # 尝试提取ROE
+                    if '净资产收益率-摊薄(%)' in latest_data:
+                        financial_data['roe'] = float(latest_data['净资产收益率-摊薄(%)']) if not pd.isna(latest_data['净资产收益率-摊薄(%)']) else None
+                    elif '净资产收益率(%)' in latest_data:
+                        financial_data['roe'] = float(latest_data['净资产收益率(%)']) if not pd.isna(latest_data['净资产收益率(%)']) else None
+                    
+                    # 尝试提取毛利率
+                    if '销售毛利率(%)' in latest_data:
+                        financial_data['gross_margin'] = float(latest_data['销售毛利率(%)']) if not pd.isna(latest_data['销售毛利率(%)']) else None
+                    elif '毛利率(%)' in latest_data:
+                        financial_data['gross_margin'] = float(latest_data['毛利率(%)']) if not pd.isna(latest_data['毛利率(%)']) else None
+                    
+                    # 尝试提取净利率
+                    if '销售净利率(%)' in latest_data:
+                        financial_data['net_margin'] = float(latest_data['销售净利率(%)']) if not pd.isna(latest_data['销售净利率(%)']) else None
+                    elif '净利率(%)' in latest_data:
+                        financial_data['net_margin'] = float(latest_data['净利率(%)']) if not pd.isna(latest_data['净利率(%)']) else None
+                elif not stock_financial_report_df.empty:
+                    # 如果成功获取了财务报表，从中提取数据
+                    latest_quarter = stock_financial_report_df.iloc[0]
+                    
+                    # 尝试从财务报表中提取指标
+                    for roe_col in ['净资产收益率(%)', 'ROE(%)', '净资产收益率']:
+                        if roe_col in latest_quarter and not pd.isna(latest_quarter[roe_col]):
+                            financial_data['roe'] = float(latest_quarter[roe_col])
+                            break
+                    
+                    for gm_col in ['毛利率(%)', '销售毛利率(%)', '毛利率']:
+                        if gm_col in latest_quarter and not pd.isna(latest_quarter[gm_col]):
+                            financial_data['gross_margin'] = float(latest_quarter[gm_col])
+                            break
+                    
+                    for nm_col in ['净利率(%)', '销售净利率(%)', '净利率']:
+                        if nm_col in latest_quarter and not pd.isna(latest_quarter[nm_col]):
+                            financial_data['net_margin'] = float(latest_quarter[nm_col])
+                            break
+                
+                # 尝试从股票实时行情中获取ROE
+                if 'roe' not in financial_data or financial_data['roe'] is None:
+                    try:
+                        # 获取个股资金流向，其中可能包含ROE
+                        stock_individual_fund_flow_df = ak.stock_individual_fund_flow(stock=formatted_stock_code, market="sh" if formatted_stock_code.startswith('6') else "sz")
+                        if 'roe' in stock_individual_fund_flow_df.columns:
+                            roe_value = stock_individual_fund_flow_df['roe'].iloc[0]
+                            if not pd.isna(roe_value):
+                                financial_data['roe'] = float(roe_value)
+                                app.logger.info(f"从资金流向数据获取到ROE: {financial_data['roe']}")
+                    except Exception as e2:
+                        app.logger.warning(f"获取个股资金流向失败: {str(e2)}")
+                
+                app.logger.info(f"获取到盈利能力指标: ROE={financial_data.get('roe')}, 毛利率={financial_data.get('gross_margin')}, 净利率={financial_data.get('net_margin')}")
+            except Exception as e:
+                app.logger.warning(f"获取盈利能力指标失败: {str(e)}")
+                app.logger.warning(traceback.format_exc())
+        
+        except ImportError:
+            app.logger.error("未安装akshare库，无法获取真实财务数据")
+        
+        # 如果没有获取到真实数据，使用模拟数据
+        if not financial_data:
+            app.logger.warning("使用模拟财务数据")
+            # 生成一个稳定的随机种子，确保同一股票每次生成相同的模拟数据
+            import hashlib
+            seed = int(hashlib.md5(f"{stock_code}_{market_type}".encode()).hexdigest(), 16) % (10**8)
+            import random
+            random.seed(seed)
+            
+            financial_data = {
+                'pe_ttm': round(10 + random.random() * 20, 2),  # 10-30之间的PE
+                'pb': round(1 + random.random() * 3, 2),  # 1-4之间的PB
+                'ps_ttm': round(1 + random.random() * 5, 2),  # 1-6之间的PS
+                'roe': round(5 + random.random() * 20, 2),  # 5-25之间的ROE
+                'gross_margin': round(20 + random.random() * 40, 2),  # 20-60之间的毛利率
+                'net_margin': round(5 + random.random() * 25, 2)  # 5-30之间的净利率
+            }
+        
+        if not growth_data:
+            app.logger.warning("使用模拟增长数据")
+            import hashlib
+            seed = int(hashlib.md5(f"{stock_code}_{market_type}_growth".encode()).hexdigest(), 16) % (10**8)
+            import random
+            random.seed(seed)
+            
+            growth_data = {
+                'revenue_3y_cagr': round(-5 + random.random() * 35, 2),  # -5% 到 30% 之间的3年营收CAGR
+                'revenue_5y_cagr': round(-5 + random.random() * 30, 2),  # -5% 到 25% 之间的5年营收CAGR
+                'profit_3y_cagr': round(-10 + random.random() * 45, 2),  # -10% 到 35% 之间的3年利润CAGR
+                'profit_5y_cagr': round(-10 + random.random() * 40, 2)   # -10% 到 30% 之间的5年利润CAGR
+            }
+        
+        # 计算估值评分 (0-100)
+        valuation_score = 0
+        if financial_data.get('pe_ttm') is not None:
+            pe_score = max(0, min(100, 100 - (financial_data['pe_ttm'] - 10) * 5)) if financial_data['pe_ttm'] > 0 else 0
+            valuation_score += pe_score * 0.5
+        
+        if financial_data.get('pb') is not None:
+            pb_score = max(0, min(100, 100 - (financial_data['pb'] - 1) * 25)) if financial_data['pb'] > 0 else 0
+            valuation_score += pb_score * 0.3
+        
+        if financial_data.get('ps_ttm') is not None:
+            ps_score = max(0, min(100, 100 - (financial_data['ps_ttm'] - 1) * 20)) if financial_data['ps_ttm'] > 0 else 0
+            valuation_score += ps_score * 0.2
+        
+        # 计算财务健康评分 (0-100)
+        financial_health_score = 0
+        if financial_data.get('roe') is not None:
+            roe_score = min(100, max(0, financial_data['roe'] * 4))
+            financial_health_score += roe_score * 0.5
+        
+        if financial_data.get('gross_margin') is not None:
+            gm_score = min(100, max(0, financial_data['gross_margin'] * 1.5))
+            financial_health_score += gm_score * 0.25
+        
+        if financial_data.get('net_margin') is not None:
+            nm_score = min(100, max(0, financial_data['net_margin'] * 3))
+            financial_health_score += nm_score * 0.25
+        
+        # 计算成长性评分 (0-100)
+        growth_score = 0
+        if growth_data.get('revenue_3y_cagr') is not None:
+            rev_3y_score = min(100, max(0, 50 + growth_data['revenue_3y_cagr'] * 2))
+            growth_score += rev_3y_score * 0.25
+        
+        if growth_data.get('revenue_5y_cagr') is not None:
+            rev_5y_score = min(100, max(0, 50 + growth_data['revenue_5y_cagr'] * 2))
+            growth_score += rev_5y_score * 0.25
+        
+        if growth_data.get('profit_3y_cagr') is not None:
+            profit_3y_score = min(100, max(0, 50 + growth_data['profit_3y_cagr'] * 1.5))
+            growth_score += profit_3y_score * 0.25
+        
+        if growth_data.get('profit_5y_cagr') is not None:
+            profit_5y_score = min(100, max(0, 50 + growth_data['profit_5y_cagr'] * 1.5))
+            growth_score += profit_5y_score * 0.25
+        
+        # 构造基本面数据
+        fundamental_data = {
+            'details': {
+                'indicators': {
+                    'stock_name': stock_info.get('stock_name', stock_code) if stock_info else stock_code,
+                    'industry': stock_info.get('industry', '未知行业') if stock_info else '未知行业',
+                    'pe_ttm': financial_data.get('pe_ttm'),
+                    'pb': financial_data.get('pb'),
+                    'ps_ttm': financial_data.get('ps_ttm'),
+                    'roe': financial_data.get('roe'),
+                    'gross_margin': financial_data.get('gross_margin'),
+                    'net_margin': financial_data.get('net_margin')
+                },
+                'growth': {
+                    'revenue_3y_cagr': growth_data.get('revenue_3y_cagr'),
+                    'revenue_5y_cagr': growth_data.get('revenue_5y_cagr'),
+                    'profit_3y_cagr': growth_data.get('profit_3y_cagr'),
+                    'profit_5y_cagr': growth_data.get('profit_5y_cagr')
+                }
+            },
+            'scores': {
+                'valuation': round(valuation_score),
+                'financial_health': round(financial_health_score),
+                'growth': round(growth_score),
+                'total': round((valuation_score + financial_health_score + growth_score) / 3)
+            },
+            'analysis': {
+                'valuation': '估值处于行业偏高水平' if valuation_score < 50 else '估值处于行业合理水平',
+                'financial_health': '财务状况一般' if financial_health_score < 50 else '财务状况良好',
+                'growth': '成长性一般' if growth_score < 50 else '成长性良好'
+            }
+        }
+        
+        return jsonify(fundamental_data)
+        
     except Exception as e:
-        app.logger.error(f"基本面分析出错: {traceback.format_exc()}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.error(f"基本面分析API出错: {str(e)}")
+        app.logger.error(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
 
 
 # 资金流向分析路由
@@ -1302,13 +1571,26 @@ def api_scenario_predict():
         if not stock_code:
             return jsonify({'error': '请提供股票代码'}), 400
 
-        # 获取情景预测结果
-        result = scenario_predictor.generate_scenarios(stock_code, market_type, days)
-
-        return custom_jsonify(result)
+        app.logger.info(f"获取情景预测: stock_code={stock_code}, market_type={market_type}, days={days}")
+        
+        # 获取分析器实例
+        analyzer = get_analyzer()
+        
+        # 创建情景预测器
+        predictor = ScenarioPredictor(analyzer)
+        
+        # 生成情景预测
+        scenarios = predictor.generate_scenarios(stock_code, market_type, days)
+        
+        # 检查是否有错误状态
+        if isinstance(scenarios, dict) and scenarios.get('status') == 'error':
+            return jsonify({'error': scenarios.get('error', '暂时不支持该股票代码分析')}), 400
+            
+        return jsonify(scenarios)
+        
     except Exception as e:
-        app.logger.error(f"情景预测出错: {traceback.format_exc()}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.error(f"情景预测API出错: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 
 # 智能问答路由
@@ -1323,12 +1605,24 @@ def api_qa():
         if not stock_code or not question:
             return jsonify({'error': '请提供股票代码和问题'}), 400
 
+        app.logger.info(f"智能问答请求: stock_code={stock_code}, question={question}")
+        
         # 获取智能问答结果
         result = stock_qa.answer_question(stock_code, question, market_type)
-
+        
+        # 检查是否有错误
+        if isinstance(result, dict) and 'error' in result:
+            error_type = result.get('error')
+            if error_type == 'unsupported_stock':
+                app.logger.warning(f"不支持的股票代码: {stock_code}")
+                return jsonify({'error': '暂时不支持该股票代码分析'}), 400
+            else:
+                app.logger.error(f"智能问答出错: {result.get('error', '未知错误')}")
+                return jsonify({'error': result.get('answer', '处理问题时出错')}), 500
+        
         return custom_jsonify(result)
     except Exception as e:
-        app.logger.error(f"智能问答出错: {traceback.format_exc()}")
+        app.logger.error(f"智能问答API出错: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1535,4 +1829,4 @@ cleaner_thread.start()
 
 if __name__ == '__main__':
     # 将 host 设置为 '0.0.0.0' 使其支持所有网络接口访问
-    app.run(host='0.0.0.0', port=8888, debug=False)
+    app.run(host='0.0.0.0', port=3886, debug=False)

@@ -17,9 +17,11 @@
                         <li class="nav-item" role="presentation">
                             <button class="nav-link active" id="stock-risk-tab" data-bs-toggle="tab" data-bs-target="#stock-risk" type="button" role="tab" aria-controls="stock-risk" aria-selected="true">个股风险</button>
                         </li>
+                        <!-- 暂时隐藏组合风险tab
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="portfolio-risk-tab" data-bs-toggle="tab" data-bs-target="#portfolio-risk" type="button" role="tab" aria-controls="portfolio-risk" aria-selected="false">组合风险</button>
                         </li>
+                        -->
                     </ul>
                     <div class="tab-content mt-3" id="risk-tabs-content">
                         <div class="tab-pane fade show active" id="stock-risk" role="tabpanel" aria-labelledby="stock-risk-tab">
@@ -35,8 +37,8 @@
                                         <span class="input-group-text">市场</span>
                                         <select class="form-select" id="market-type">
                                             <option value="A" selected>A股</option>
-                                            <option value="HK">港股</option>
-                                            <option value="US">美股</option>
+<!--                                            <option value="HK">港股</option>-->
+<!--                                            <option value="US">美股</option>-->
                                         </select>
                                     </div>
                                 </div>
@@ -47,6 +49,7 @@
                                 </div>
                             </form>
                         </div>
+                        <!-- 暂时隐藏组合风险内容
                         <div class="tab-pane fade" id="portfolio-risk" role="tabpanel" aria-labelledby="portfolio-risk-tab">
                             <div class="alert alert-info">
                                 <i class="fas fa-info-circle"></i> 分析投资组合的整体风险，识别高风险股票和风险集中度。
@@ -55,6 +58,7 @@
                                 <i class="fas fa-briefcase"></i> 分析我的投资组合
                             </button>
                         </div>
+                        -->
                     </div>
                 </div>
             </div>
@@ -201,7 +205,7 @@
         </div>
     </div>
 
-    <!-- 投资组合风险分析结果 -->
+    <!-- 暂时隐藏投资组合风险分析结果
     <div id="portfolio-risk-result" style="display: none;">
         <div class="row g-3 mb-3">
             <div class="col-md-6">
@@ -226,7 +230,6 @@
                                 <p><span class="text-muted">行业集中度:</span> <span id="industry-concentration" class="fw-bold"></span></p>
                                 <p><span class="text-muted">高风险股票占比:</span> <span id="high-risk-concentration" class="fw-bold"></span></p>
                                 <div id="portfolio-risk-alerts" class="mt-2">
-                                    <!-- 风险预警内容将在JS中动态填充 -->
                                 </div>
                             </div>
                         </div>
@@ -266,35 +269,6 @@
                                     </tr>
                                 </thead>
                                 <tbody id="high-risk-stocks-table">
-                                    <!-- 高风险股票列表将在JS中动态填充 -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="row g-3 mb-3">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header py-2">
-                        <h5 class="mb-0">风险预警列表</h5>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-sm table-striped table-hover mb-0">
-                                <thead>
-                                    <tr>
-                                        <th>代码</th>
-                                        <th>名称</th>
-                                        <th>预警类型</th>
-                                        <th>风险等级</th>
-                                        <th>预警信息</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="risk-alerts-table">
-                                    <!-- 风险预警列表将在JS中动态填充 -->
                                 </tbody>
                             </table>
                         </div>
@@ -303,6 +277,7 @@
             </div>
         </div>
     </div>
+    -->
 </div>
 {% endblock %}
 
@@ -323,10 +298,12 @@
             analyzeStockRisk(stockCode, marketType);
         });
 
+        /* 暂时注释组合风险相关功能
         // 分析投资组合风险按钮点击
         $('#analyze-portfolio-btn').click(function() {
             analyzePortfolioRisk();
         });
+        */
     });
 
     function analyzeStockRisk(stockCode, marketType) {
@@ -344,59 +321,18 @@
             }),
             success: function(response) {
                 $('#loading-panel').hide();
+                if (response.error) {
+                    showError(response.error);
+                    return;
+                }
                 renderStockRiskAnalysis(response, stockCode);
                 $('#stock-risk-result').show();
             },
             error: function(xhr, status, error) {
                 $('#loading-panel').hide();
-                let errorMsg = '获取风险分析数据失败';
+                let errorMsg = '暂时不支持该股票代码分析';
                 if (xhr.responseJSON && xhr.responseJSON.error) {
-                    errorMsg += ': ' + xhr.responseJSON.error;
-                } else if (error) {
-                    errorMsg += ': ' + error;
-                }
-                showError(errorMsg);
-            }
-        });
-    }
-
-    function analyzePortfolioRisk() {
-        // 尝试从本地存储获取投资组合数据
-        const savedPortfolio = localStorage.getItem('portfolio');
-        if (!savedPortfolio) {
-            showError('您的投资组合为空，请先添加股票到投资组合');
-            return;
-        }
-
-        const portfolio = JSON.parse(savedPortfolio);
-        if (portfolio.length === 0) {
-            showError('您的投资组合为空，请先添加股票到投资组合');
-            return;
-        }
-
-        $('#loading-panel').show();
-        $('#stock-risk-result').hide();
-        $('#portfolio-risk-result').hide();
-
-        $.ajax({
-            url: '/api/portfolio_risk',
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({
-                portfolio: portfolio
-            }),
-            success: function(response) {
-                $('#loading-panel').hide();
-                renderPortfolioRiskAnalysis(response, portfolio);
-                $('#portfolio-risk-result').show();
-            },
-            error: function(xhr, status, error) {
-                $('#loading-panel').hide();
-                let errorMsg = '获取投资组合风险分析数据失败';
-                if (xhr.responseJSON && xhr.responseJSON.error) {
-                    errorMsg += ': ' + xhr.responseJSON.error;
-                } else if (error) {
-                    errorMsg += ': ' + error;
+                    errorMsg = xhr.responseJSON.error;
                 }
                 showError(errorMsg);
             }
@@ -462,37 +398,6 @@
         renderVolumeChart([1.2, 0.8, 1.5, 2.8, 2.1]);
     }
 
-    function renderPortfolioRiskAnalysis(data, portfolio) {
-        // 设置基本信息
-        $('#portfolio-stock-count').text(portfolio.length);
-
-        // 设置风险等级
-        const riskScore = data.portfolio_risk_score || 0;
-        const riskLevel = data.risk_level || '未知';
-        const riskLevelBadgeClass = getRiskLevelBadgeClass(riskLevel);
-        $('#portfolio-risk-level-badge').text(riskLevel).removeClass().addClass(`badge ${riskLevelBadgeClass}`);
-
-        // 设置风险集中度
-        const riskConcentration = data.risk_concentration || {};
-        $('#industry-concentration').text(`${riskConcentration.max_industry || '未知'} (${formatPercent(riskConcentration.max_industry_weight || 0, 1)})`);
-        $('#high-risk-concentration').text(formatPercent(riskConcentration.high_risk_weight || 0, 1));
-
-        // 设置风险预警
-        renderPortfolioRiskAlerts(data.alerts || []);
-
-        // 渲染投资组合风险仪表图
-        renderPortfolioRiskGaugeChart(riskScore);
-
-        // 渲染行业分布图
-        renderIndustryDistributionChart(portfolio);
-
-        // 渲染高风险股票列表
-        renderHighRiskStocksTable(data.high_risk_stocks || []);
-
-        // 渲染风险预警列表
-        renderRiskAlertsTable(data.alerts || []);
-    }
-
     function renderRiskAlerts(alerts) {
         let html = '';
 
@@ -510,33 +415,6 @@
         }
 
         $('#risk-alerts').html(html);
-    }
-
-    function renderPortfolioRiskAlerts(alerts) {
-        let html = '';
-
-        if (alerts.length === 0) {
-            html = '<div class="alert alert-success">投资组合风险均衡，未发现显著风险集中</div>';
-        } else {
-            let alertCount = 0;
-            alerts.forEach(alert => {
-                if (alertCount < 3) { // 只显示前3条
-                    const alertClass = getRiskAlertClass(alert.level);
-                    html += `
-                        <div class="alert ${alertClass} mb-2">
-                            <strong>${alert.stock_code}:</strong> ${alert.message}
-                        </div>
-                    `;
-                    alertCount++;
-                }
-            });
-
-            if (alerts.length > 3) {
-                html += `<p class="text-muted small">还有 ${alerts.length - 3} 条风险预警，请查看下方详情表格</p>`;
-            }
-        }
-
-        $('#portfolio-risk-alerts').html(html);
     }
 
     function renderRiskGaugeChart(score) {
@@ -574,44 +452,6 @@
         };
 
         const chart = new ApexCharts(document.querySelector("#risk-gauge-chart"), options);
-        chart.render();
-    }
-
-    function renderPortfolioRiskGaugeChart(score) {
-        const options = {
-            series: [score],
-            chart: {
-                height: 120,
-                type: 'radialBar',
-            },
-            plotOptions: {
-                radialBar: {
-                    hollow: {
-                        size: '70%',
-                    },
-                    dataLabels: {
-                        show: true,
-                        name: {
-                            show: false
-                        },
-                        value: {
-                            fontSize: '16px',
-                            fontWeight: 'bold',
-                            offsetY: 5
-                        }
-                    },
-                    track: {
-                        background: '#f2f2f2'
-                    }
-                }
-            },
-            fill: {
-                colors: [getRiskColor(score)]
-            },
-            labels: ['风险分数']
-        };
-
-        const chart = new ApexCharts(document.querySelector("#portfolio-risk-gauge-chart"), options);
         chart.render();
     }
 
@@ -653,58 +493,6 @@
         };
 
         const chart = new ApexCharts(document.querySelector("#risk-radar-chart"), options);
-        chart.render();
-    }
-
-    function renderIndustryDistributionChart(portfolio) {
-        // 根据投资组合计算行业分布
-        const industries = {};
-        let totalWeight = 0;
-
-        portfolio.forEach(stock => {
-            const industry = stock.industry || '未知';
-            const weight = stock.weight || 1;
-
-            if (industries[industry]) {
-                industries[industry] += weight;
-            } else {
-                industries[industry] = weight;
-            }
-
-            totalWeight += weight;
-        });
-
-        const series = [];
-        const labels = [];
-
-        for (const industry in industries) {
-            if (industries.hasOwnProperty(industry)) {
-                series.push(industries[industry]);
-                labels.push(industry);
-            }
-        }
-
-        const options = {
-            series: series,
-            chart: {
-                height: 220,
-                type: 'pie',
-            },
-            labels: labels,
-            colors: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796', '#5a5c69', '#6f42c1'],
-            legend: {
-                position: 'bottom'
-            },
-            tooltip: {
-                y: {
-                    formatter: function(value) {
-                        return value + ' (' + ((value / totalWeight) * 100).toFixed(1) + '%)';
-                    }
-                }
-            }
-        };
-
-        const chart = new ApexCharts(document.querySelector("#industry-distribution-chart"), options);
         chart.render();
     }
 
@@ -936,64 +724,6 @@
         chart.render();
     }
 
-    function renderHighRiskStocksTable(highRiskStocks) {
-        let html = '';
-
-        if (highRiskStocks.length === 0) {
-            html = '<tr><td colspan="7" class="text-center">未发现高风险股票</td></tr>';
-        } else {
-            highRiskStocks.forEach(stock => {
-                const riskScoreClass = getRiskScoreClass(stock.risk_score);
-                const riskLevelBadgeClass = getRiskLevelBadgeClass(stock.risk_level);
-
-                html += `
-                    <tr>
-                        <td>${stock.stock_code}</td>
-                        <td>${stock.stock_name || '未知'}</td>
-                        <td><span class="badge ${riskScoreClass}">${stock.risk_score}</span></td>
-                        <td><span class="badge ${riskLevelBadgeClass}">${stock.risk_level}</span></td>
-                        <td>${formatPercent(stock.weight || 0, 1)}</td>
-                        <td>${stock.main_risk || '未知'}</td>
-                        <td>
-                            <a href="/stock_detail/${stock.stock_code}" class="btn btn-sm btn-outline-info me-1">
-                                <i class="fas fa-chart-line"></i>
-                            </a>
-                            <a href="/risk_monitor?stock=${stock.stock_code}" class="btn btn-sm btn-outline-danger">
-                                <i class="fas fa-exclamation-triangle"></i>
-                            </a>
-                        </td>
-                    </tr>
-                `;
-            });
-        }
-
-        $('#high-risk-stocks-table').html(html);
-    }
-
-    function renderRiskAlertsTable(alerts) {
-        let html = '';
-
-        if (alerts.length === 0) {
-            html = '<tr><td colspan="5" class="text-center">暂无风险预警</td></tr>';
-        } else {
-            alerts.forEach(alert => {
-                const riskLevelBadgeClass = getRiskLevelBadgeClass(alert.level);
-
-                html += `
-                    <tr>
-                        <td>${alert.stock_code}</td>
-                        <td>${alert.stock_name || '未知'}</td>
-                        <td>${alert.type}</td>
-                        <td><span class="badge ${riskLevelBadgeClass}">${alert.level}</span></td>
-                        <td>${alert.message}</td>
-                    </tr>
-                `;
-            });
-        }
-
-        $('#risk-alerts-table').html(html);
-    }
-
     function getRiskLevelBadgeClass(level) {
         switch (level) {
             case '极高':
@@ -1024,18 +754,36 @@
         }
     }
 
-    function getRiskScoreClass(score) {
-        if (score >= 80) return 'bg-danger';
-        if (score >= 60) return 'bg-warning text-dark';
-        if (score >= 40) return 'bg-info text-dark';
-        return 'bg-success';
-    }
-
     function getRiskColor(score) {
         if (score >= 80) return '#dc3545'; // 红色
         if (score >= 60) return '#ffc107'; // 黄色
         if (score >= 40) return '#17a2b8'; // 蓝色
         return '#28a745'; // 绿色
+    }
+
+    // 显示错误信息
+    function showError(message) {
+        const alertsContainer = $('#alerts-container');
+        
+        // 创建警告框
+        const alertHtml = `
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>${message}</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        `;
+        
+        // 添加到容器
+        alertsContainer.html(alertHtml);
+        
+        // 隐藏加载指示器和结果区域
+        $('#loading-panel').hide();
+        $('#stock-risk-result').hide();
+        $('#portfolio-risk-result').hide();
+        
+        // 滚动到顶部
+        window.scrollTo(0, 0);
     }
 </script>
 {% endblock %}

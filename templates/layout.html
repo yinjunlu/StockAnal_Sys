@@ -346,9 +346,13 @@
                     <li class="nav-item">
                         <a class="nav-link {% if request.path == '/market_scan' %}active{% endif %}" href="/market_scan"><i class="fas fa-search"></i> 市场扫描</a>
                     </li>
+                    <!-- 暂时隐藏投资组合功能
                     <li class="nav-item">
-                        <a class="nav-link {% if request.path == '/portfolio' %}active{% endif %}" href="/portfolio"><i class="fas fa-briefcase"></i> 投资组合</a>
+                        <a class="nav-link" href="/portfolio">
+                            <i class="fas fa-briefcase"></i> 投资组合
+                        </a>
                     </li>
+                    -->
                     <!-- 新增菜单项 - 风险监控 -->
                     <li class="nav-item">
                         <a class="nav-link {% if request.path.startswith('/risk') %}active{% endif %}" href="/risk_monitor"><i class="fas fa-exclamation-triangle"></i> 风险监控</a>

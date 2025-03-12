@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 import openai
+import logging
 """
 
 """
@@ -21,17 +22,26 @@ class ScenarioPredictor:
         self.openai_api_key = os.getenv('OPENAI_API_KEY', os.getenv('OPENAI_API_KEY'))
         self.openai_api_url = os.getenv('OPENAI_API_URL')
         self.openai_model = os.getenv('OPENAI_API_MODEL', 'gemini-2.0-pro-exp-02-05')
-
+        self.logger = logging.getLogger(__name__)
 
     def generate_scenarios(self, stock_code, market_type='A', days=60):
         """生成乐观、中性、悲观三种市场情景预测"""
         try:
             # 获取股票数据和技术指标
+            self.logger.info(f"开始获取股票 {stock_code} 的数据")
             df = self.analyzer.get_stock_data(stock_code, market_type)
+            
+            if df is None or df.empty:
+                self.logger.error(f"股票 {stock_code} 数据为空")
+                return {"error": "暂时不支持该股票代码分析", "status": "error"}
+                
             df = self.analyzer.calculate_indicators(df)
 
             # 获取股票信息
             stock_info = self.analyzer.get_stock_info(stock_code)
+            if not stock_info:
+                self.logger.warning(f"无法获取股票 {stock_code} 的基本信息")
+                stock_info = {"股票名称": stock_code}
 
             # 计算基础数据
             current_price = df.iloc[-1]['close']
@@ -46,9 +56,14 @@ class ScenarioPredictor:
                 scenarios.update(ai_analysis)
 
             return scenarios
+        except KeyError as e:
+            error_msg = f"获取股票数据失败: {str(e)}"
+            self.logger.error(error_msg)
+            return {"error": "暂时不支持该股票代码分析", "status": "error"}
         except Exception as e:
-            print(f"生成情景预测出错: {str(e)}")
-            return {}
+            error_msg = f"生成情景预测出错: {str(e)}"
+            self.logger.error(error_msg)
+            return {"error": "暂时不支持该股票代码分析", "status": "error"}
 
     def _calculate_scenarios(self, df, days):
         """基于历史数据计算三种情景的价格预测"""

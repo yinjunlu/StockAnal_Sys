@@ -46,12 +46,12 @@
     </div>
 
     <div id="error-retry" class="text-center mt-3" style="display: none;">
-        <button id="retry-button" class="btn btn-primary mt-2">
-            <i class="fas fa-sync-alt"></i> 重试分析
+        <div class="countdown-message text-muted mb-2">
+            <span id="countdown-seconds">5</span>秒后自动返回上一页
+        </div>
+        <button id="back-button" class="btn btn-primary mt-2">
+            <i class="fas fa-arrow-left"></i> 返回上一页
         </button>
-        <p class="text-muted small mt-2">
-            如果重试失败，请访问<a href="/dashboard">仪表盘</a>尝试其他股票
-        </p>
     </div>
 
     <div id="analysis-result" style="display: none;">
@@ -188,16 +188,30 @@
 <script>
     const stockCode = '{{ stock_code }}';
     let marketType = '{{ market_type }}';
-    let period = '1y';
+    let period = '{{ request.args.get("period", "1y") }}';  // 从URL参数中获取周期
     let stockData = [];
     let analysisResult = null;
 
     $(document).ready(function() {
+        // 重置全局计时器变量
+        window.processingTime = 0;
+        window.processingTimer = null;
+        window.currentAnalysisTaskId = null;
+        
+        // 设置周期选择器的初始值
+        $('#analysis-period').val(period);
+        
         // 初始加载
         loadStockData();
 
         // 刷新按钮点击事件
         $('#refresh-btn').click(function() {
+            // 重置计时器
+            if (window.processingTimer) {
+                clearInterval(window.processingTimer);
+                window.processingTime = 0;
+            }
+            
             marketType = $('#market-type').val();
             period = $('#analysis-period').val();
             loadStockData();
@@ -218,6 +232,7 @@
     function loadStockData() {
         $('#loading-panel').show();
         $('#analysis-result').hide();
+        $('#error-retry').hide();
 
         // 获取股票数据
         $.ajax({
@@ -225,6 +240,12 @@
             type: 'GET',
             dataType: 'json',
             success: function(response) {
+                // 检查是否有错误状态
+                if (response.status === "error") {
+                    $('#loading-panel').hide();
+                    showError(response.message || '暂时不支持该股票代码分析');
+                    return;
+                }
 
                 // 检查response是否有data属性
                 if (!response.data) {
@@ -247,30 +268,42 @@
             error: function(xhr, status, error) {
                 $('#loading-panel').hide();
 
-                let errorMsg = '获取股票数据失败';
-                if (xhr.responseJSON && xhr.responseJSON.error) {
-                    errorMsg += ': ' + xhr.responseJSON.error;
-                } else if (error) {
-                    errorMsg += ': ' + error;
+                let errorMsg = '暂时不支持该股票代码分析';
+                if (xhr.responseJSON) {
+                    if (xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    } else if (xhr.responseJSON.error) {
+                        errorMsg = xhr.responseJSON.error;
+                    }
                 }
+                
                 showError(errorMsg);
+                console.error("获取股票数据错误:", error, xhr.responseJSON);
             }
         });
     }
 
     // 加载分析结果
     function loadAnalysisResult() {
-
         // 显示加载状态并启动进度更新
         $('#loading-panel').show();
         $('#analysis-result').hide();
         $('#error-retry').hide();
 
-        // 添加处理时间计数器
-        let processingTime = 0;
-        const processingTimer = setInterval(function() {
-            processingTime++;
-            $('#processing-time').text(processingTime);
+        // 添加处理时间计数器 - 使用全局变量以避免重置
+        if (!window.processingTime) {
+            window.processingTime = 0;
+        }
+        
+        // 清除之前的计时器（如果存在）
+        if (window.processingTimer) {
+            clearInterval(window.processingTimer);
+        }
+        
+        // 启动新的计时器
+        window.processingTimer = setInterval(function() {
+            window.processingTime++;
+            $('#processing-time').text(window.processingTime);
         }, 1000);
 
         // 使用新的API启动分析任务
@@ -283,28 +316,26 @@
                 market_type: marketType
             }),
             success: function(response) {
-
                 // 检查是否已有结果
                 if (response.status === 'completed' && response.result) {
                     // 任务已完成，直接处理结果
                     handleAnalysisResult(response.result);
-                    clearInterval(processingTimer);
+                    clearInterval(window.processingTimer);
                     return;
                 }
 
                 // 开始轮询任务状态
-                pollAnalysisStatus(response.task_id, processingTime, processingTimer);
+                pollAnalysisStatus(response.task_id);
             },
             error: function(xhr, status, error) {
-                clearInterval(processingTimer);
+                clearInterval(window.processingTimer);
                 handleAnalysisError(xhr, status, error);
             }
         });
     }
 
     // 轮询分析任务状态
-    function pollAnalysisStatus(taskId, startTime, timerInterval) {
-        let elapsedTime = startTime || 0;
+    function pollAnalysisStatus(taskId) {
         let pollInterval;
 
         // 保存当前任务ID，用于取消
@@ -318,30 +349,27 @@
                 url: `/api/analysis_status/${taskId}`,
                 type: 'GET',
                 success: function(response) {
-                    // 更新计时和进度
-                    elapsedTime = startTime + 1;
+                    // 更新进度显示 - 不再更新计时，因为已经有全局计时器了
                     const progress = response.progress || 0;
-
-                    // 更新进度显示
-                    $('#processing-time').text(elapsedTime);
 
                     // 根据任务状态处理
                     if (response.status === 'completed') {
                         // 分析完成，停止轮询
                         clearInterval(pollInterval);
-                        clearInterval(timerInterval);
+                        clearInterval(window.processingTimer);
+                        window.processingTime = 0; // 重置计时器，为下次分析做准备
 
                         // 处理结果
                         handleAnalysisResult(response.result);
                     } else if (response.status === 'failed') {
                         // 分析失败，停止轮询
                         clearInterval(pollInterval);
-                        clearInterval(timerInterval);
+                        clearInterval(window.processingTimer);
+                        window.processingTime = 0; // 重置计时器，为下次分析做准备
 
                         $('#loading-panel').hide();
 
                         showError('分析失败: ' + (response.error || '未知错误'));
-                        $('#error-retry').show();
                     } else {
                         // 任务仍在进行中，继续轮询
                         if (!pollInterval) {
@@ -361,6 +389,12 @@
     // 处理分析结果
     function handleAnalysisResult(result) {
         try {
+            // 停止计时器
+            if (window.processingTimer) {
+                clearInterval(window.processingTimer);
+                window.processingTime = 0; // 重置计时器，为下次分析做准备
+            }
+            
             // 设置全局变量
             analysisResult = result;
 
@@ -371,6 +405,12 @@
             $('#loading-panel').hide();
             $('#analysis-result').show();
         } catch (error) {
+            // 确保在出错时也停止计时器
+            if (window.processingTimer) {
+                clearInterval(window.processingTimer);
+                window.processingTime = 0;
+            }
+            
             $('#loading-panel').hide();
             showError('处理分析结果时出错: ' + error.message);
         }
@@ -392,7 +432,6 @@
         }
 
         showError(errorMsg);
-        $('#error-retry').show();
     }
 
     // 取消按钮功能
@@ -402,23 +441,110 @@
                 url: `/api/cancel_analysis/${window.currentAnalysisTaskId}`,
                 type: 'POST',
                 success: function(response) {
+                    // 停止计时器
+                    if (window.processingTimer) {
+                        clearInterval(window.processingTimer);
+                        window.processingTime = 0; // 重置计时器，为下次分析做准备
+                    }
+                    
                     $('#loading-panel').hide();
                     showInfo('分析已取消');
                 },
                 error: function(error) {
                     console.error('取消分析失败:', error);
+                    
+                    // 即使API调用失败，也停止计时器并隐藏加载面板
+                    if (window.processingTimer) {
+                        clearInterval(window.processingTimer);
+                        window.processingTime = 0;
+                    }
+                    
+                    $('#loading-panel').hide();
                 }
             });
         } else {
+            // 停止计时器
+            if (window.processingTimer) {
+                clearInterval(window.processingTimer);
+                window.processingTime = 0;
+            }
+            
             $('#loading-panel').hide();
         }
     });
 
     // 重试按钮功能
-    $('#retry-button').click(function() {
-        $('#error-retry').hide();
-        loadAnalysisResult();
+    $('#back-button').click(function() {
+        goBack();
     });
+
+    // 显示错误信息
+    function showError(message) {
+        // 创建或获取alerts容器
+        const alertsContainer = $('#alerts-container');
+        
+        // 创建警告框
+        const alertHtml = `
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>${message}</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close" onclick="goBack()"></button>
+            </div>
+        `;
+        
+        // 添加到容器
+        alertsContainer.html(alertHtml);
+        
+        // 隐藏加载指示器和结果区域
+        $('#loading-panel').hide();
+        $('#analysis-result').hide();
+        
+        // 更新页面标题，移除"股票详情加载中..."
+        if (message.includes('暂时不支持该股票代码分析')) {
+            $('#stock-title').text(`${stockCode} - 不支持分析`);
+        } else {
+            $('#stock-title').text(`${stockCode} - 加载失败`);
+        }
+        
+        // 滚动到顶部
+        window.scrollTo(0, 0);
+        
+        // 显示返回区域
+        $('#error-retry').show();
+        
+        // 开始倒计时
+        startCountdown();
+    }
+    
+    // 倒计时返回函数
+    function startCountdown() {
+        let seconds = 5;
+        $('#countdown-seconds').text(seconds);
+        
+        const countdownTimer = setInterval(function() {
+            seconds--;
+            $('#countdown-seconds').text(seconds);
+            
+            if (seconds <= 0) {
+                clearInterval(countdownTimer);
+                goBack();
+            }
+        }, 1000);
+        
+        // 保存计时器ID，以便在需要时清除
+        window.countdownTimerId = countdownTimer;
+    }
+    
+    // 返回上一页函数
+    function goBack() {
+        // 如果有倒计时，清除它
+        if (window.countdownTimerId) {
+            clearInterval(window.countdownTimerId);
+        }
+        
+        // 返回上一页
+        window.history.back();
+    }
 
     // 通用安全格式化函数
     function safeFormat(value, decimals=2) {
@@ -1187,14 +1313,6 @@
             $('#indicators-chart').html('<div class="alert alert-danger">指标图表加载失败: ' + error.message + '</div>');
         }
     }
-
-    // 添加到script部分
-    $('#retry-button').click(function() {
-        // 隐藏错误和重试区域
-        $('#error-retry').hide();
-        // 重新加载分析
-        loadAnalysisResult();
-    });
 
 </script>
 {% endblock %}

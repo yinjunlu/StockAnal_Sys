@@ -24,8 +24,8 @@
                                 <span class="input-group-text">市场</span>
                                 <select class="form-select" id="market-type">
                                     <option value="A" selected>A股</option>
-                                    <option value="HK">港股</option>
-                                    <option value="US">美股</option>
+<!--                                    <option value="HK">港股</option>-->
+<!--                                    <option value="US">美股</option>-->
                                 </select>
                             </div>
                         </div>
@@ -183,9 +183,61 @@
             return;
         }
 
-        // 重定向到股票详情页
+        // 重定向到股票详情页，确保传递周期参数
         window.location.href = `/stock_detail/${stockCode}?market_type=${marketType}&period=${period}`;
     });
+
+    // 显示错误信息
+    function showError(message) {
+        // 创建或获取alerts容器
+        const alertsContainer = $('#alerts-container');
+        
+        // 创建警告框
+        const alertHtml = `
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        `;
+        
+        // 添加到容器
+        alertsContainer.html(alertHtml);
+        
+        // 滚动到顶部
+        window.scrollTo(0, 0);
+        
+        // 5秒后自动关闭
+        setTimeout(() => {
+            $('.alert').alert('close');
+        }, 5000);
+    }
+
+    // 显示加载中
+    function showLoading() {
+        // 隐藏分析结果
+        $('#analysis-result').hide();
+        
+        // 显示加载指示器
+        if ($('#loading-indicator').length === 0) {
+            const loadingHtml = `
+                <div id="loading-indicator" class="text-center my-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">加载中...</span>
+                    </div>
+                    <p class="mt-2">正在分析数据，请稍候...</p>
+                </div>
+            `;
+            $('#alerts-container').after(loadingHtml);
+        } else {
+            $('#loading-indicator').show();
+        }
+    }
+
+    // 隐藏加载中
+    function hideLoading() {
+        $('#loading-indicator').hide();
+    }
 
     // Format AI analysis text
     function formatAIAnalysis(text) {
@@ -246,6 +298,12 @@
             type: 'GET',
             dataType: 'json',
             success: function(response) {
+                // 检查是否有错误状态
+                if (response.status === "error") {
+                    hideLoading();
+                    showError(response.message || '暂时不支持该股票代码分析');
+                    return;
+                }
 
                 // 检查response是否有data属性
                 if (!response.data) {
@@ -268,13 +326,16 @@
             error: function(xhr, status, error) {
                 hideLoading();
 
-                let errorMsg = '获取股票数据失败';
-                if (xhr.responseJSON && xhr.responseJSON.error) {
-                    errorMsg += ': ' + xhr.responseJSON.error;
-                } else if (error) {
-                    errorMsg += ': ' + error;
+                let errorMsg = '暂时不支持该股票代码分析';
+                if (xhr.responseJSON) {
+                    if (xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    } else if (xhr.responseJSON.error) {
+                        errorMsg = xhr.responseJSON.error;
+                    }
                 }
                 showError(errorMsg);
+                console.error("获取股票数据错误:", error, xhr.responseJSON);
             }
         });
     }
